@@ -13,21 +13,31 @@ import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.java.StreamTableEnvironment;
 import pers.lgx.flink.comment.RegisterTable;
+import pers.lgx.flink.lookupsource.TemporalTableSource;
 
 public class LeftJoinThenDistinctSink {
     public static void main(String[] args) {
         // set up the streaming execution environment
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
         EnvironmentSettings environmentSettings = EnvironmentSettings.newInstance().useBlinkPlanner().inStreamingMode().build();
         StreamTableEnvironment tEnv = StreamTableEnvironment.create(env, environmentSettings);
 
         RegisterTable.registerTable(env, tEnv);
 
+        Table ratesHistory = tEnv.scan("RatesHistory");
+
+        tEnv.registerTableSource("RatesView", new TemporalTableSource(ratesHistory));
+
+
         // order_no, currency, amount, rmb_amount, time
-        Table result = tEnv.sqlQuery("select o_order_no as order_no, o_currency as currency, o_amount as amount, " +
-                "o_amount * r_rate / 100 as rmb_amount, o_time from Orders" +
-                " left join RatesHistory on o_currency = r_currency");
+//        Table result = tEnv.sqlQuery("select o_order_no as order_no, o_currency as currency, o_amount as amount, " +
+//                "o_amount * r_rate / 100 as rmb_amount, o_time from Orders" +
+//                " left join RatesHistory on o_currency = r_currency");
+
+        Table result = tEnv.sqlQuery("select o.o_order_no as order_no, o.o_currency as currency, o.o_amount as amount, " +
+                "o.o_amount * r.r_rate / 100 as rmb_amount, o.o_time from Orders as o " +
+                "left join RatesView FOR SYSTEM_TIME AS OF o.o_time AS r on r.r_currency = o.o_currency");
 
 
         JDBCUpsertTableSink jdbcSink = jdbcSink(args);
